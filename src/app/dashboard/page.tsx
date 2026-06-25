@@ -37,18 +37,30 @@ export default function DashboardPage() {
     const userId = session?.user.id;
     if (!userId) return;
 
+    let cancelled = false;
     supabase
       .from("usage")
       .select("words_used, period_start")
       .eq("user_id", userId)
       .maybeSingle<{ words_used: number; period_start: string }>()
       .then(({ data }) => {
-        const used =
-          data && data.period_start >= currentPeriodStart()
-            ? data.words_used ?? 0
-            : 0;
-        setWordsUsed(used);
+        if (cancelled) return;
+        const isCurrentPeriod =
+          !!data && data.period_start >= currentPeriodStart();
+        setWordsUsed((prev) => {
+          // Authoritative value from the DB for the current month.
+          if (isCurrentPeriod) return data!.words_used ?? 0;
+          // No row yet, or it belongs to a past month. Only the initial load
+          // (reloadKey === 0) may legitimately show 0 (new month / first use).
+          // After a generation, keep the optimistic value so the bar never
+          // snaps back to 0 while the write hasn't been read back yet.
+          return reloadKey === 0 ? 0 : prev;
+        });
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [session, reloadKey]);
 
   const run = async (
