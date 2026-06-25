@@ -9,7 +9,7 @@ import AiActions, { type RefineAction } from "@/components/dashboard/AiActions";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { useTranslation } from "@/i18n/LanguageProvider";
 import { supabase } from "@/lib/supabase";
-import { FREE_WORD_LIMIT, currentPeriodStart } from "@/lib/quota";
+import { FREE_WORD_LIMIT, countWords, currentPeriodStart } from "@/lib/quota";
 import { streamGeneration, type GenerateError } from "@/lib/generate-client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -86,7 +86,15 @@ export default function DashboardPage() {
     );
   }
 
-  const percent = Math.min(100, Math.round((wordsUsed / FREE_WORD_LIMIT) * 100));
+  // During streaming, show live word count from result text; after done, use DB value.
+  const liveWordsUsed = busy && result ? wordsUsed + countWords(result) : wordsUsed;
+  const percent = Math.min(100, Math.round((liveWordsUsed / FREE_WORD_LIMIT) * 100));
+  const barColor =
+    percent >= 85
+      ? "bg-destructive"
+      : percent >= 60
+        ? "bg-amber-500"
+        : "bg-emerald-500";
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-10">
@@ -100,13 +108,13 @@ export default function DashboardPage() {
         <div className="w-full sm:w-56">
           <div className="mb-1 flex justify-between text-xs text-muted-foreground">
             <span>
-              {wordsUsed} / {FREE_WORD_LIMIT}
+              {liveWordsUsed} / {FREE_WORD_LIMIT}
             </span>
             <span>{t.dashboard.wordsThisMonth}</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-primary transition-all"
+              className={`h-full rounded-full transition-all duration-300 ${barColor}`}
               style={{ width: `${percent}%` }}
             />
           </div>
