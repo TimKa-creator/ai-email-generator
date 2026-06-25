@@ -11,11 +11,15 @@ import {
 } from "@/lib/quota";
 import { isLocale, localeToLanguage } from "@/i18n/locales";
 
+type RefineAction = "shorter" | "formal" | "emoji";
+
 interface GenerateRequestBody {
   topic: string;
   tone: string;
   words: number;
   locale: string;
+  action: RefineAction;
+  text: string;
 }
 
 interface UsageRow {
@@ -23,19 +27,37 @@ interface UsageRow {
   period_start: string;
 }
 
+const REFINE_INSTRUCTIONS: Record<RefineAction, string> = {
+  shorter:
+    "Rewrite the following email to be noticeably more concise and shorter, while keeping the key message and a natural tone.",
+  formal:
+    "Rewrite the following email to be more formal and professional, while keeping the original meaning.",
+  emoji:
+    "Rewrite the following email adding a few tasteful, relevant emojis to make it friendlier. Do not overdo it.",
+};
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<GenerateRequestBody>;
-    const { topic, tone, words, locale } = body;
+    const { topic, tone, words, locale, action, text } = body;
 
-    if (!topic?.trim() || !tone) {
+    const isRefine = Boolean(action);
+
+    if (isRefine) {
+      if (!action || !REFINE_INSTRUCTIONS[action] || !text?.trim()) {
+        return NextResponse.json(
+          { error: "Missing or invalid refinement request." },
+          { status: 400 }
+        );
+      }
+    } else if (!topic?.trim() || !tone) {
       return NextResponse.json(
         { error: "Missing required fields: topic and tone are required." },
         { status: 400 }
       );
     }
 
-    // --- Auth: validate the caller's Supabase access token --------------------
+    // --- Auth -----------------------------------------------------------------
     const admin = getSupabaseAdmin();
     if (!admin) {
       console.error("[/api/generate] SUPABASE_SERVICE_ROLE_KEY is not configured.");
@@ -66,7 +88,7 @@ export async function POST(request: Request) {
     }
     const userId = userData.user.id;
 
-    // --- Quota: read current usage and reset if a new month started -----------
+    // --- Read usage and apply the monthly reset -------------------------------
     const periodStart = currentPeriodStart();
     const { data: usageData } = await admin
       .from("usage")
@@ -74,24 +96,37 @@ export async function POST(request: Request) {
       .eq("user_id", userId)
       .maybeSingle<UsageRow>();
 
-    let wordsUsed = 0;
-    if (usageData) {
-      wordsUsed =
-        usageData.period_start < periodStart ? 0 : usageData.words_used ?? 0;
+    const sameMonth = usageData ? usageData.period_start >= periodStart : false;
+    const wordsUsed = sameMonth ? usageData?.words_used ?? 0 : 0;
+
+    // --- Word gates (new generations only) ------------------------------------
+    let targetWords = 0;
+    if (!isRefine) {
+      if (wordsUsed >= FREE_WORD_LIMIT) {
+        return NextResponse.json(
+          {
+            error:
+              "You've reached your monthly word limit. Upgrade to Pro for more.",
+            code: "word_limit",
+          },
+          { status: 403 }
+        );
+      }
+
+      const requestedWords = Number(words) || 100;
+      if (requestedWords > FREE_WORDS_PER_EMAIL) {
+        return NextResponse.json(
+          {
+            error: `Emails over ${FREE_WORDS_PER_EMAIL} words require a Pro plan.`,
+            code: "pro_required",
+          },
+          { status: 403 }
+        );
+      }
+      targetWords = Math.min(Math.max(requestedWords, 10), MAX_WORDS_PER_EMAIL);
     }
 
-    if (wordsUsed >= FREE_WORD_LIMIT) {
-      return NextResponse.json(
-        {
-          error:
-            "You've reached your monthly word limit. Upgrade to Pro for more.",
-          usage: { wordsUsed, limit: FREE_WORD_LIMIT },
-        },
-        { status: 403 }
-      );
-    }
-
-    // --- Generate -------------------------------------------------------------
+    // --- Build the prompt -----------------------------------------------------
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.error("[/api/generate] GEMINI_API_KEY is not configured.");
@@ -101,31 +136,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestedWords = Number(words) || 100;
-
-    // Per-email Pro gate: Free users are limited to FREE_WORDS_PER_EMAIL words.
-    if (requestedWords > FREE_WORDS_PER_EMAIL) {
-      return NextResponse.json(
-        {
-          error: `Emails over ${FREE_WORDS_PER_EMAIL} words require a Pro plan.`,
-          code: "pro_required",
-        },
-        { status: 403 }
-      );
-    }
-
-    const targetWords = Math.min(
-      Math.max(requestedWords, 10),
-      MAX_WORDS_PER_EMAIL
-    );
     const language = isLocale(locale) ? localeToLanguage[locale] : "English";
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const prompt =
+      isRefine && action
+        ? `${REFINE_INSTRUCTIONS[action]}
 
-    const prompt = `Write an email of approximately ${targetWords} words in a ${tone.toLowerCase()} tone about the following topic.
+Write the email in ${language}. Return only the rewritten email, with no commentary or markdown code fences.
 
-Topic: ${topic.trim()}
+Email:
+${text!.trim()}`
+        : `Write an email of approximately ${targetWords} words in a ${tone!.toLowerCase()} tone about the following topic.
+
+Topic: ${topic!.trim()}
 
 Write the email in ${language}.
 
@@ -134,35 +157,55 @@ Guidelines:
 - Do not include any commentary, explanations, or markdown code fences before or after the email.
 - Aim for about ${targetWords} words and use natural line breaks between paragraphs.`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    // --- Stream the response and record word usage afterwards -----------------
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    if (!text) {
-      return NextResponse.json(
-        { error: "The AI did not return any content. Please try again." },
-        { status: 500 }
-      );
-    }
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let full = "";
+        try {
+          const result = await model.generateContentStream(prompt);
+          for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            if (chunkText) {
+              full += chunkText;
+              controller.enqueue(encoder.encode(chunkText));
+            }
+          }
+        } catch (error) {
+          console.error("[/api/generate] Streaming failed:", error);
+          controller.error(error);
+          return;
+        }
 
-    // --- Record usage ---------------------------------------------------------
-    const newTotal = wordsUsed + countWords(text);
-    const { error: upsertError } = await admin.from("usage").upsert(
-      {
-        user_id: userId,
-        words_used: newTotal,
-        period_start: periodStart,
-        updated_at: new Date().toISOString(),
+        // Track words for new generations (refinements don't count toward the quota).
+        if (!isRefine) {
+          try {
+            await admin.from("usage").upsert(
+              {
+                user_id: userId,
+                words_used: wordsUsed + countWords(full),
+                period_start: periodStart,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "user_id" }
+            );
+          } catch (error) {
+            console.error("[/api/generate] Failed to record usage:", error);
+          }
+        }
+
+        controller.close();
       },
-      { onConflict: "user_id" }
-    );
-    if (upsertError) {
-      // Don't fail the request over a tracking error — the user already has text.
-      console.error("[/api/generate] Failed to record usage:", upsertError);
-    }
+    });
 
-    return NextResponse.json({
-      text,
-      usage: { wordsUsed: newTotal, limit: FREE_WORD_LIMIT },
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
     });
   } catch (error) {
     console.error("[/api/generate] Failed to generate email:", error);

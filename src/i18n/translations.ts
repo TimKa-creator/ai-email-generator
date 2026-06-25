@@ -9,6 +9,7 @@ const en = {
     logOut: "Log Out",
     profile: "Profile",
     language: "Language",
+    theme: "Toggle theme",
   },
   nav: {
     features: "Features",
@@ -191,6 +192,11 @@ const en = {
     customInvalid: "Please enter a valid number of words.",
     proNote: "200+ words require Pro — upgrade",
     proError: "Emails over 200 words require a Pro plan. Upgrade to unlock.",
+    actions: {
+      shorter: "Make shorter",
+      formal: "More formal",
+      emoji: "Add emoji",
+    },
     generate: "Generate Email",
     generating: "Generating...",
     resultTitle: "Generated Email",
@@ -246,6 +252,7 @@ const uk: Dictionary = {
     logOut: "Вийти",
     profile: "Профіль",
     language: "Мова",
+    theme: "Перемкнути тему",
   },
   nav: {
     features: "Можливості",
@@ -428,6 +435,11 @@ const uk: Dictionary = {
     customInvalid: "Введіть коректну кількість слів.",
     proNote: "200+ слів — потрібен Pro, оновіть",
     proError: "Листи понад 200 слів потребують плану Pro. Оновіть, щоб розблокувати.",
+    actions: {
+      shorter: "Коротше",
+      formal: "Формальніше",
+      emoji: "Додати емодзі",
+    },
     generate: "Згенерувати лист",
     generating: "Генерація...",
     resultTitle: "Згенерований лист",
@@ -481,6 +493,7 @@ const ru: Dictionary = {
     logOut: "Выйти",
     profile: "Профиль",
     language: "Язык",
+    theme: "Переключить тему",
   },
   nav: {
     features: "Возможности",
@@ -663,6 +676,11 @@ const ru: Dictionary = {
     customInvalid: "Введите корректное количество слов.",
     proNote: "200+ слов — нужен Pro, оформить",
     proError: "Письма свыше 200 слов требуют плана Pro. Оформите, чтобы разблокировать.",
+    actions: {
+      shorter: "Короче",
+      formal: "Формальнее",
+      emoji: "Добавить эмодзи",
+    },
     generate: "Сгенерировать письмо",
     generating: "Генерация...",
     resultTitle: "Сгенерированное письмо",
@@ -716,6 +734,7 @@ const de: Dictionary = {
     logOut: "Abmelden",
     profile: "Profil",
     language: "Sprache",
+    theme: "Thema wechseln",
   },
   nav: {
     features: "Funktionen",
@@ -898,6 +917,11 @@ const de: Dictionary = {
     customInvalid: "Bitte gib eine gültige Wortanzahl ein.",
     proNote: "200+ Wörter erfordern Pro — upgraden",
     proError: "E-Mails über 200 Wörter erfordern einen Pro-Plan. Upgrade zum Freischalten.",
+    actions: {
+      shorter: "Kürzer",
+      formal: "Formeller",
+      emoji: "Emojis hinzufügen",
+    },
     generate: "E-Mail erstellen",
     generating: "Wird erstellt...",
     resultTitle: "Erstellte E-Mail",

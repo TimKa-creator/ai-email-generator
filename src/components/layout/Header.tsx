@@ -6,6 +6,7 @@ import { Mail } from "lucide-react";
 import { useTranslation } from "@/i18n/LanguageProvider";
 import AuthButtons from "@/components/layout/AuthButtons";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 
 const Header = () => {
   const { t } = useTranslation();
@@ -37,8 +38,9 @@ const Header = () => {
           ))}
         </nav>
 
-        {/* Right side: language + auth */}
+        {/* Right side: theme + language + auth */}
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSwitcher />
           <AuthButtons />
         </div>

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import { supabase } from "@/lib/supabase";
 import { useTranslation } from "@/i18n/LanguageProvider";
 import { WORD_PRESETS, FREE_WORDS_PER_EMAIL } from "@/lib/quota";
 import { Button } from "@/components/ui/button";
@@ -34,89 +33,40 @@ const TONE_KEYS = [
 
 type ToneKey = (typeof TONE_KEYS)[number];
 
-export interface UsageInfo {
-  wordsUsed: number;
-  limit: number;
-}
-
 interface EmailFormProps {
-  onGenerate: (text: string) => void;
-  onUsage?: (usage: UsageInfo) => void;
+  busy: boolean;
+  onSubmit: (params: { topic: string; tone: string; words: number }) => void;
 }
 
-const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
-  const { t, locale } = useTranslation();
+const EmailForm = ({ busy, onSubmit }: EmailFormProps) => {
+  const { t } = useTranslation();
   const [topic, setTopic] = useState("");
   const [tone, setTone] = useState<ToneKey>("friendly");
   const [wordsMode, setWordsMode] = useState<string>("100");
   const [customWords, setCustomWords] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
   const isCustom = wordsMode === "custom";
   const effectiveWords = isCustom ? parseInt(customWords, 10) : Number(wordsMode);
   const overFreeLimit =
     Number.isFinite(effectiveWords) && effectiveWords > FREE_WORDS_PER_EMAIL;
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!topic.trim()) {
       toast.error(t.dashboard.errorTopic);
       return;
     }
-
     if (isCustom && (!Number.isFinite(effectiveWords) || effectiveWords < 10)) {
       toast.error(t.dashboard.customInvalid);
       return;
     }
-
     if (overFreeLimit) {
       toast.error(t.dashboard.proError);
       return;
     }
 
-    setIsLoading(true);
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      if (!token) {
-        throw new Error(t.auth.login.failed);
-      }
-
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ topic, tone, words: effectiveWords, locale }),
-      });
-
-      const data = (await response.json()) as {
-        text?: string;
-        error?: string;
-        usage?: UsageInfo;
-      };
-
-      if (!response.ok || !data.text) {
-        if (data.usage) onUsage?.(data.usage);
-        throw new Error(data.error ?? "Something went wrong. Please try again.");
-      }
-
-      onGenerate(data.text);
-      if (data.usage) onUsage?.(data.usage);
-      toast.success(t.dashboard.ready);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to generate the email.";
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
-    }
+    onSubmit({ topic, tone, words: effectiveWords });
   };
 
   return (
@@ -131,7 +81,7 @@ const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
           onChange={(event) => setTopic(event.target.value)}
           placeholder={t.dashboard.topicPlaceholder}
           className="min-h-32 resize-none"
-          disabled={isLoading}
+          disabled={busy}
         />
       </div>
 
@@ -141,7 +91,7 @@ const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
           <Select
             value={tone}
             onValueChange={(value) => setTone(value as ToneKey)}
-            disabled={isLoading}
+            disabled={busy}
           >
             <SelectTrigger className="w-full">
               <SelectValue>
@@ -163,7 +113,7 @@ const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
           <Select
             value={wordsMode}
             onValueChange={(value) => setWordsMode(value as string)}
-            disabled={isLoading}
+            disabled={busy}
           >
             <SelectTrigger className="w-full">
               <SelectValue>
@@ -195,7 +145,7 @@ const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
             value={customWords}
             onChange={(event) => setCustomWords(event.target.value)}
             placeholder={t.dashboard.customPlaceholder}
-            disabled={isLoading}
+            disabled={busy}
             aria-label={t.dashboard.wordsLabel}
           />
           {overFreeLimit && (
@@ -211,8 +161,8 @@ const EmailForm = ({ onGenerate, onUsage }: EmailFormProps) => {
         </div>
       )}
 
-      <Button type="submit" size="lg" disabled={isLoading} className="w-full">
-        {isLoading ? (
+      <Button type="submit" size="lg" disabled={busy} className="w-full">
+        {busy ? (
           <>
             <Loader2Icon className="size-4 animate-spin" />
             {t.dashboard.generating}
