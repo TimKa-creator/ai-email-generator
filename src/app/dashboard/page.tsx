@@ -58,7 +58,12 @@ export default function DashboardPage() {
     setBusy(true);
     setLoadingAction(action);
     try {
-      await streamGeneration({ ...body, locale }, setResult);
+      const finalText = await streamGeneration({ ...body, locale }, setResult);
+      // Optimistically update word count so the bar doesn't snap back to 0
+      // while waiting for the Supabase re-fetch. Only new generations consume quota.
+      if (!action) {
+        setWordsUsed((prev) => prev + countWords(finalText));
+      }
       setReloadKey((key) => key + 1);
       toast.success(t.dashboard.ready);
     } catch (error) {
